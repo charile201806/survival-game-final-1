@@ -16,17 +16,15 @@ const App: React.FC = () => {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   
-  // Cloud States
   const [roomId, setRoomId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('room') || localStorage.getItem('z-zone-active-room');
+    const id = params.get('room') || localStorage.getItem('z-zone-active-room');
+    return (id && id !== "undefined") ? id : null;
   });
   
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
-
-  // Auth states
   const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('z-zone-admin') === 'true');
   const [showLogin, setShowLogin] = useState(false);
   const [showShare, setShowShare] = useState(false);
@@ -37,6 +35,7 @@ const App: React.FC = () => {
   }, []);
 
   const fetchData = useCallback(async (id: string) => {
+    if (!id || id === "undefined") return false;
     setIsSyncing(true);
     try {
       const cloudData = await getRoomData(id);
@@ -58,21 +57,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initFetch = async () => {
-      if (roomId) {
+      if (roomId && roomId !== "undefined") {
         setAiReport(`正在偵測頻道 [${roomId}] 的實時數據...`);
         const success = await fetchData(roomId);
         if (success) {
           setAiReport("連線成功。戰術指揮網絡已同步。");
         } else {
-          setAiReport("伺服器無回應。請檢查您的網路連線或稍後再試。");
+          setAiReport("無法取得頻道數據。頻道可能已失效或 ID 錯誤。");
         }
       } else {
         const saved = localStorage.getItem('br-players');
         if (saved) {
           setPlayers(JSON.parse(saved));
-          setAiReport("載入本地數據。管理員請開啟雲端廣播以同步給其他玩家。");
+          setAiReport("載入本地數據。請點擊「開啟雲端廣播」以同步。");
         } else {
-          setAiReport("歡迎來到 Z-ZONE。請點擊右上角登入後開始建立玩家名單。");
+          setAiReport("歡迎。登入管理員權限以開始建立玩家名單。");
         }
       }
     };
@@ -80,7 +79,7 @@ const App: React.FC = () => {
   }, [roomId, fetchData]);
 
   useEffect(() => {
-    if (isAdmin && roomId && players.length >= 0) {
+    if (isAdmin && roomId && roomId !== "undefined" && players.length >= 0) {
       const sync = async () => {
         setIsSyncing(true);
         const success = await updateRoom(roomId, players);
@@ -90,18 +89,19 @@ const App: React.FC = () => {
           setSyncError(null);
         } else {
           setSyncError("SYNC_ERR");
+          setAiReport("同步失敗：無法寫入雲端伺服器。");
         }
       };
       const timeoutId = setTimeout(sync, 2000);
       return () => clearTimeout(timeoutId);
     }
-    if (isAdmin && !roomId) {
+    if (isAdmin && (!roomId || roomId === "undefined")) {
       localStorage.setItem('br-players', JSON.stringify(players));
     }
   }, [players, isAdmin, roomId]);
 
   useEffect(() => {
-    if (!isAdmin && roomId) {
+    if (!isAdmin && roomId && roomId !== "undefined") {
       const interval = setInterval(() => fetchData(roomId), 15000);
       return () => clearInterval(interval);
     }
@@ -117,7 +117,7 @@ const App: React.FC = () => {
   const handleEnableSync = async () => {
     if (!isAdmin) return;
     setIsSyncing(true);
-    setAiReport("正在與中央伺服器建立加密頻道...");
+    setAiReport("正在向伺服器申請加密通訊 ID...");
     try {
       const newId = await createRoom(players);
       if (newId) {
@@ -130,11 +130,11 @@ const App: React.FC = () => {
         setSyncError(null);
         setLastSync(Date.now());
       } else {
-        setAiReport("伺服器無回應：無法取得頻道 ID。請稍後再試。");
+        setAiReport("伺服器回應異常：無法建立頻道。請查看 Console 錯誤資訊。");
         setSyncError("CONNECT_ERR");
       }
     } catch (e) {
-      setAiReport("致命錯誤：通訊協議請求失敗。");
+      setAiReport("致命錯誤：連線被拒絕。");
       setSyncError("FATAL");
     } finally {
       setIsSyncing(false);
@@ -144,11 +144,11 @@ const App: React.FC = () => {
   const handleLogin = () => {
     setIsAdmin(true);
     sessionStorage.setItem('z-zone-admin', 'true');
-    setAiReport("身分驗證成功，指揮權限已解鎖。");
+    setAiReport("管理員身分驗證成功。指揮權限解鎖。");
   };
 
   const handleLogout = () => {
-    if (window.confirm('登出將結束管理權限，確定？')) {
+    if (window.confirm('確定退出指揮模式？')) {
       setIsAdmin(false);
       sessionStorage.removeItem('z-zone-admin');
       localStorage.removeItem('z-zone-active-room');
@@ -185,7 +185,7 @@ const App: React.FC = () => {
   const handleGenerateReport = async () => {
     if (players.length === 0) return;
     setIsGeneratingReport(true);
-    setAiReport("正在與 AI 衛星連線，分析戰場態勢...");
+    setAiReport("衛星連線中，正在產生即時戰情報告...");
     const report = await generateBattleReport(players);
     setAiReport(report);
     setIsGeneratingReport(false);
@@ -206,7 +206,6 @@ const App: React.FC = () => {
               {currentTime.toLocaleTimeString([], { hour12: false })}
             </span>
           </div>
-
           {roomId ? (
             <button onClick={() => fetchData(roomId)} className={`flex items-center gap-2 hover:opacity-70 transition-opacity ${syncError ? 'text-red-500' : 'text-neon-green'}`}>
               <Wifi size={12} className={isSyncing ? "animate-spin" : "animate-pulse"} />
@@ -217,7 +216,7 @@ const App: React.FC = () => {
           ) : (
             <div className="flex items-center gap-2 text-gray-500">
               <CloudOff size={12} />
-              <span className="text-[10px] font-mono uppercase tracking-widest">LOCAL DATA</span>
+              <span className="text-[10px] font-mono uppercase tracking-widest">OFFLINE MODE</span>
             </div>
           )}
         </div>
@@ -233,25 +232,25 @@ const App: React.FC = () => {
       <header className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-center gap-4 mt-12">
         <div className="text-center md:text-left">
           <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-neon-green to-white italic tracking-tighter">Z-ZONE</h1>
-          <p className="text-gray-500 font-mono text-xs tracking-[0.3em] uppercase">Tactical Information Network</p>
+          <p className="text-gray-500 font-mono text-xs tracking-[0.3em] uppercase">Tactical Link Established</p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
           {isAdmin && !roomId && (
             <button onClick={handleEnableSync} disabled={isSyncing} className="group flex items-center gap-2 px-4 py-2 bg-yellow-900/10 border border-yellow-500/40 text-yellow-500 font-mono text-xs rounded-lg hover:bg-yellow-900/30">
               <Cloud size={14} className={isSyncing ? "animate-spin" : "group-hover:animate-bounce"} />
-              ENABLE CLOUD BROADCAST
+              ENABLE CLOUD
             </button>
           )}
-          {roomId && <button onClick={() => setShowShare(true)} className="flex items-center gap-2 px-4 py-2 bg-neon-green/5 border border-neon-green/30 text-neon-green font-mono text-xs rounded-lg hover:bg-neon-green/10"><Share2 size={14} /> SHARE CHANNEL</button>}
-          <button onClick={handleGenerateReport} disabled={isGeneratingReport || players.length === 0} className="flex items-center gap-2 px-4 py-2 bg-blue-900/20 border border-blue-500/30 text-blue-200 font-mono text-xs rounded-lg hover:bg-blue-900/40"><Radio size={14} className={isGeneratingReport ? "animate-pulse" : ""} /> AI INTEL</button>
+          {roomId && <button onClick={() => setShowShare(true)} className="flex items-center gap-2 px-4 py-2 bg-neon-green/5 border border-neon-green/30 text-neon-green font-mono text-xs rounded-lg hover:bg-neon-green/10"><Share2 size={14} /> SHARE</button>}
+          <button onClick={handleGenerateReport} disabled={isGeneratingReport || players.length === 0} className="flex items-center gap-2 px-4 py-2 bg-blue-900/20 border border-blue-500/30 text-blue-200 font-mono text-xs rounded-lg hover:bg-blue-900/40"><Radio size={14} className={isGeneratingReport ? "animate-pulse" : ""} /> AI ANALYSIS</button>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto">
         <div className="mb-8 bg-black/40 border-l-4 border-blue-500 backdrop-blur-sm p-5 relative rounded-r-lg group overflow-hidden">
           <div className="flex justify-between items-start mb-1">
-             <h3 className="text-blue-400 text-[10px] font-mono flex items-center gap-2 uppercase tracking-widest"><Zap size={10} /> System Terminal Output</h3>
-             {isSyncing && <div className="text-blue-500 text-[10px] font-mono animate-pulse uppercase">Sync Active</div>}
+             <h3 className="text-blue-400 text-[10px] font-mono flex items-center gap-2 uppercase tracking-widest"><Zap size={10} /> Terminal Log</h3>
+             {isSyncing && <div className="text-blue-500 text-[10px] font-mono animate-pulse uppercase">Syncing...</div>}
           </div>
           <p className={`font-mono text-sm md:text-lg leading-relaxed ${isGeneratingReport || isSyncing ? 'text-gray-500 italic' : 'text-gray-200'}`}>
             <span className="text-blue-500 mr-2">&gt;</span>{aiReport}
@@ -262,22 +261,19 @@ const App: React.FC = () => {
 
         {isAdmin && (
           <form onSubmit={addPlayer} className="mb-10 flex gap-2">
-            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ENTRY UNIT ID..." className="flex-1 bg-gray-900/50 border border-gray-700 rounded-lg py-4 px-5 text-white focus:border-neon-green outline-none font-mono" />
-            <button type="submit" className="bg-neon-green hover:bg-cyan-400 text-black font-black py-4 px-8 rounded-lg uppercase tracking-widest shadow-lg shadow-neon-green/20">DEPLOY</button>
+            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="UNIT ID..." className="flex-1 bg-gray-900/50 border border-gray-700 rounded-lg py-4 px-5 text-white focus:border-neon-green outline-none font-mono" />
+            <button type="submit" className="bg-neon-green hover:bg-cyan-400 text-black font-black py-4 px-8 rounded-lg uppercase tracking-widest shadow-lg shadow-neon-green/20">ADD UNIT</button>
           </form>
         )}
 
         {players.length === 0 ? (
           <div className="text-center py-24 border-2 border-dashed border-gray-800 rounded-2xl">
-            <p className="text-gray-600 font-mono uppercase tracking-[0.5em] text-sm animate-pulse">Scanning for Biosignatures...</p>
+            <p className="text-gray-600 font-mono uppercase tracking-[0.5em] text-sm animate-pulse">Waiting for commands...</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {players.map(player => (
-              <div key={player.id} className="relative group">
-                <PlayerCard player={player} onStatusChange={updateStatus} onDelete={deletePlayer} readOnly={!isAdmin} />
-                {isSyncing && <div className="absolute inset-0 bg-white/5 pointer-events-none animate-pulse rounded-xl" />}
-              </div>
+              <PlayerCard key={player.id} player={player} onStatusChange={updateStatus} onDelete={deletePlayer} readOnly={!isAdmin} />
             ))}
           </div>
         )}
