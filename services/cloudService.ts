@@ -1,7 +1,8 @@
+
 import { Player } from "../types";
 
-// npoint.io API
-const API_BASE = "https://api.npoint.io";
+// npoint.io API - 修正路徑，必須包含 /bins
+const API_BASE = "https://api.npoint.io/bins";
 
 export const createRoom = async (players: Player[]): Promise<string | null> => {
   try {
@@ -23,6 +24,7 @@ export const createRoom = async (players: Player[]): Promise<string | null> => {
     }
     
     const result = await response.json();
+    // npoint 回傳的通常是 { "binId": "..." }
     return result.binId || result.id || null;
   } catch (error) {
     console.error("Cloud Connection Failed (Create):", error);
@@ -33,9 +35,9 @@ export const createRoom = async (players: Player[]): Promise<string | null> => {
 export const updateRoom = async (roomId: string, players: Player[]): Promise<boolean> => {
   if (!roomId) return false;
   try {
-    // npoint 支援直接 POST 到 ID 來更新內容
+    // 更新既有的 bin
     const response = await fetch(`${API_BASE}/${roomId}`, {
-      method: "POST",
+      method: "PUT", // 更新通常使用 PUT
       headers: {
         "Content-Type": "application/json",
       },
@@ -44,17 +46,6 @@ export const updateRoom = async (roomId: string, players: Player[]): Promise<boo
         lastUpdate: Date.now() 
       }),
     });
-    
-    if (!response.ok) {
-      console.warn(`Update failed with status ${response.status}, retrying with PUT...`);
-      // 某些情況下需要使用 PUT
-      const retry = await fetch(`${API_BASE}/${roomId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: players, lastUpdate: Date.now() }),
-      });
-      return retry.ok;
-    }
     
     return response.ok;
   } catch (error) {
@@ -71,7 +62,8 @@ export const getRoomData = async (roomId: string): Promise<Player[] | null> => {
     });
     if (!response.ok) return null;
     const result = await response.json();
-    return result.data || null;
+    // 判斷回傳結構，npoint 有時會把內容包在 result.data
+    return result.data || result || null;
   } catch (error) {
     console.error("Cloud Connection Failed (Fetch):", error);
     return null;

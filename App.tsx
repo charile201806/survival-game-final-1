@@ -31,30 +31,31 @@ const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
   const [showShare, setShowShare] = useState(false);
 
-  // Tactical Clock Update
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Initial Fetching function
   const fetchData = useCallback(async (id: string) => {
     setIsSyncing(true);
-    const cloudData = await getRoomData(id);
-    setIsSyncing(false);
-    
-    if (cloudData) {
-      setPlayers(cloudData);
-      setLastSync(Date.now());
-      setSyncError(null);
-      return true;
-    } else {
+    try {
+      const cloudData = await getRoomData(id);
+      setIsSyncing(false);
+      if (cloudData && Array.isArray(cloudData)) {
+        setPlayers(cloudData);
+        setLastSync(Date.now());
+        setSyncError(null);
+        return true;
+      }
       setSyncError("FETCH_ERR");
+      return false;
+    } catch (e) {
+      setIsSyncing(false);
+      setSyncError("NET_ERR");
       return false;
     }
   }, []);
 
-  // 1. Initial Data Loading
   useEffect(() => {
     const initFetch = async () => {
       if (roomId) {
@@ -63,7 +64,7 @@ const App: React.FC = () => {
         if (success) {
           setAiReport("連線成功。戰術指揮網絡已同步。");
         } else {
-          setAiReport("連線失敗：找不到該頻道，或是伺服器暫時無回應。");
+          setAiReport("伺服器無回應。請檢查您的網路連線或稍後再試。");
         }
       } else {
         const saved = localStorage.getItem('br-players');
@@ -78,7 +79,6 @@ const App: React.FC = () => {
     initFetch();
   }, [roomId, fetchData]);
 
-  // 2. Auto-save to Cloud (Admins only)
   useEffect(() => {
     if (isAdmin && roomId && players.length >= 0) {
       const sync = async () => {
@@ -92,20 +92,17 @@ const App: React.FC = () => {
           setSyncError("SYNC_ERR");
         }
       };
-      
-      const timeoutId = setTimeout(sync, 1500); // Debounce
+      const timeoutId = setTimeout(sync, 2000);
       return () => clearTimeout(timeoutId);
     }
-    
     if (isAdmin && !roomId) {
       localStorage.setItem('br-players', JSON.stringify(players));
     }
   }, [players, isAdmin, roomId]);
 
-  // 3. Auto-refresh for Spectators (Non-admins)
   useEffect(() => {
     if (!isAdmin && roomId) {
-      const interval = setInterval(() => fetchData(roomId), 10000);
+      const interval = setInterval(() => fetchData(roomId), 15000);
       return () => clearInterval(interval);
     }
   }, [isAdmin, roomId, fetchData]);
@@ -120,27 +117,24 @@ const App: React.FC = () => {
   const handleEnableSync = async () => {
     if (!isAdmin) return;
     setIsSyncing(true);
-    setAiReport("正在向中央伺服器申請廣播頻道...");
-    
+    setAiReport("正在與中央伺服器建立加密頻道...");
     try {
       const newId = await createRoom(players);
       if (newId) {
         setRoomId(newId);
         localStorage.setItem('z-zone-active-room', newId);
-        
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.set('room', newId);
         window.history.replaceState({}, '', newUrl.toString());
-        
-        setAiReport(`頻道已建立！ID: ${newId}。觀戰者連結已生成。`);
+        setAiReport(`頻道已建立！ID: ${newId}。通訊鏈路已鎖定。`);
         setSyncError(null);
         setLastSync(Date.now());
       } else {
-        setAiReport("連線超時：伺服器未回傳 ID。請確認網路環境或重試。");
+        setAiReport("伺服器無回應：無法取得頻道 ID。請稍後再試。");
         setSyncError("CONNECT_ERR");
       }
     } catch (e) {
-      setAiReport("致命錯誤：無法連接到雲端服務。");
+      setAiReport("致命錯誤：通訊協議請求失敗。");
       setSyncError("FATAL");
     } finally {
       setIsSyncing(false);
@@ -198,11 +192,10 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen p-4 md:p-8 font-sans pb-24 relative overflow-x-hidden">
+    <div className="min-h-screen p-4 md:p-8 font-sans pb-24 relative overflow-x-hidden bg-[#050505]">
       <LoginModal isOpen={showLogin} onClose={() => setShowLogin(false)} onLogin={handleLogin} />
       <ShareModal isOpen={showShare} onClose={() => setShowShare(false)} players={players} roomId={roomId} />
 
-      {/* Top Floating Status Bar */}
       <div className="fixed top-0 left-0 w-full z-[60] flex justify-center pointer-events-none p-2">
         <div className={`flex items-center gap-4 bg-black/95 backdrop-blur-lg border px-4 py-1.5 rounded-full shadow-2xl pointer-events-auto transition-all duration-700 ${
           syncError ? 'border-red-500 shadow-red-500/30' : (roomId ? 'border-neon-green shadow-neon-green/30' : 'border-gray-800')
@@ -215,13 +208,10 @@ const App: React.FC = () => {
           </div>
 
           {roomId ? (
-            <button 
-              onClick={() => fetchData(roomId)}
-              className={`flex items-center gap-2 hover:opacity-70 transition-opacity ${syncError ? 'text-red-500' : 'text-neon-green'}`}
-            >
+            <button onClick={() => fetchData(roomId)} className={`flex items-center gap-2 hover:opacity-70 transition-opacity ${syncError ? 'text-red-500' : 'text-neon-green'}`}>
               <Wifi size={12} className={isSyncing ? "animate-spin" : "animate-pulse"} />
               <span className="text-[10px] font-mono font-bold uppercase tracking-widest">
-                {syncError ? `CONNECTION LOST` : `CH: ${roomId}`}
+                {syncError ? `SYNC ERROR` : `CH: ${roomId}`}
               </span>
             </button>
           ) : (
@@ -230,25 +220,13 @@ const App: React.FC = () => {
               <span className="text-[10px] font-mono uppercase tracking-widest">LOCAL DATA</span>
             </div>
           )}
-          {lastSync && (
-            <div className="flex items-center gap-2 border-l border-gray-800 pl-4 hidden md:flex">
-               <span className="text-[10px] text-gray-400 font-mono">
-                {isSyncing ? 'SYNCING...' : `LAST UPDATE: ${new Date(lastSync).toLocaleTimeString([], { hour12: false })}`}
-              </span>
-            </div>
-          )}
         </div>
       </div>
 
-      <div className="fixed top-4 right-4 z-50 flex flex-col items-end gap-2">
-        <button 
-          onClick={() => isAdmin ? handleLogout() : setShowLogin(true)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all shadow-lg backdrop-blur-md ${
-            isAdmin ? 'bg-red-900/80 text-white border-red-500 hover:bg-red-800' : 'bg-gray-900/80 text-gray-400 border-gray-700 hover:text-white'
-          }`}
-        >
+      <div className="fixed top-4 right-4 z-50">
+        <button onClick={() => isAdmin ? handleLogout() : setShowLogin(true)} className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all shadow-lg backdrop-blur-md ${isAdmin ? 'bg-red-900/80 text-white border-red-500 hover:bg-red-800' : 'bg-gray-900/80 text-gray-400 border-gray-700 hover:text-white'}`}>
           {isAdmin ? <LogOut size={14} /> : <Lock size={14} />}
-          <span className="font-mono text-xs font-bold">{isAdmin ? 'LOGOUT' : 'ADMIN LOGIN'}</span>
+          <span className="font-mono text-xs font-bold">{isAdmin ? 'LOGOUT' : 'ADMIN'}</span>
         </button>
       </div>
 
@@ -257,58 +235,35 @@ const App: React.FC = () => {
           <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-neon-green to-white italic tracking-tighter">Z-ZONE</h1>
           <p className="text-gray-500 font-mono text-xs tracking-[0.3em] uppercase">Tactical Information Network</p>
         </div>
-        
         <div className="flex flex-wrap justify-center gap-3">
           {isAdmin && !roomId && (
-            <button 
-              onClick={handleEnableSync} 
-              disabled={isSyncing} 
-              className={`group flex items-center gap-2 px-4 py-2 bg-yellow-900/10 border border-yellow-500/40 text-yellow-500 font-mono text-xs rounded-lg hover:bg-yellow-900/30 transition-all ${isSyncing ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
+            <button onClick={handleEnableSync} disabled={isSyncing} className="group flex items-center gap-2 px-4 py-2 bg-yellow-900/10 border border-yellow-500/40 text-yellow-500 font-mono text-xs rounded-lg hover:bg-yellow-900/30">
               <Cloud size={14} className={isSyncing ? "animate-spin" : "group-hover:animate-bounce"} />
               ENABLE CLOUD BROADCAST
             </button>
           )}
-          {roomId && (
-            <button onClick={() => setShowShare(true)} className="flex items-center gap-2 px-4 py-2 bg-neon-green/5 border border-neon-green/30 text-neon-green font-mono text-xs rounded-lg hover:bg-neon-green/10">
-              <Share2 size={14} /> SHARE CHANNEL
-            </button>
-          )}
-          <button onClick={handleGenerateReport} disabled={isGeneratingReport || players.length === 0} className="flex items-center gap-2 px-4 py-2 bg-blue-900/20 border border-blue-500/30 text-blue-200 font-mono text-xs rounded-lg hover:bg-blue-900/40 disabled:opacity-30">
-            <Radio size={14} className={isGeneratingReport ? "animate-pulse" : ""} /> AI TACTICAL INTEL
-          </button>
+          {roomId && <button onClick={() => setShowShare(true)} className="flex items-center gap-2 px-4 py-2 bg-neon-green/5 border border-neon-green/30 text-neon-green font-mono text-xs rounded-lg hover:bg-neon-green/10"><Share2 size={14} /> SHARE CHANNEL</button>}
+          <button onClick={handleGenerateReport} disabled={isGeneratingReport || players.length === 0} className="flex items-center gap-2 px-4 py-2 bg-blue-900/20 border border-blue-500/30 text-blue-200 font-mono text-xs rounded-lg hover:bg-blue-900/40"><Radio size={14} className={isGeneratingReport ? "animate-pulse" : ""} /> AI INTEL</button>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto">
         <div className="mb-8 bg-black/40 border-l-4 border-blue-500 backdrop-blur-sm p-5 relative rounded-r-lg group overflow-hidden">
-          {isGeneratingReport && (
-             <div className="absolute inset-0 bg-blue-500/5 animate-pulse pointer-events-none" />
-          )}
           <div className="flex justify-between items-start mb-1">
              <h3 className="text-blue-400 text-[10px] font-mono flex items-center gap-2 uppercase tracking-widest"><Zap size={10} /> System Terminal Output</h3>
-             {isSyncing && <div className="text-blue-500 text-[10px] font-mono animate-pulse uppercase">Data Link Active</div>}
+             {isSyncing && <div className="text-blue-500 text-[10px] font-mono animate-pulse uppercase">Sync Active</div>}
           </div>
           <p className={`font-mono text-sm md:text-lg leading-relaxed ${isGeneratingReport || isSyncing ? 'text-gray-500 italic' : 'text-gray-200'}`}>
             <span className="text-blue-500 mr-2">&gt;</span>{aiReport}
           </p>
-          {roomId && !isAdmin && (
-            <button onClick={() => fetchData(roomId)} className="absolute bottom-2 right-2 p-1 text-gray-700 hover:text-blue-400 transition-colors" title="手動重新整理">
-              <RotateCcw size={12} />
-            </button>
-          )}
         </div>
 
         <StatsBoard stats={stats} />
 
         {isAdmin && (
           <form onSubmit={addPlayer} className="mb-10 flex gap-2">
-            <input 
-              type="text" value={newName} onChange={(e) => setNewName(e.target.value)} 
-              placeholder="ENTRY UNIT ID..." 
-              className="flex-1 bg-gray-900/50 border border-gray-700 rounded-lg py-4 px-5 text-white focus:border-neon-green focus:bg-black outline-none transition-all font-mono" 
-            />
-            <button type="submit" className="bg-neon-green hover:bg-cyan-400 text-black font-black py-4 px-8 rounded-lg uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-neon-green/20">DEPLOY</button>
+            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ENTRY UNIT ID..." className="flex-1 bg-gray-900/50 border border-gray-700 rounded-lg py-4 px-5 text-white focus:border-neon-green outline-none font-mono" />
+            <button type="submit" className="bg-neon-green hover:bg-cyan-400 text-black font-black py-4 px-8 rounded-lg uppercase tracking-widest shadow-lg shadow-neon-green/20">DEPLOY</button>
           </form>
         )}
 
@@ -321,21 +276,12 @@ const App: React.FC = () => {
             {players.map(player => (
               <div key={player.id} className="relative group">
                 <PlayerCard player={player} onStatusChange={updateStatus} onDelete={deletePlayer} readOnly={!isAdmin} />
-                {isSyncing && (
-                  <div className="absolute inset-0 bg-white/5 pointer-events-none animate-pulse rounded-xl" />
-                )}
+                {isSyncing && <div className="absolute inset-0 bg-white/5 pointer-events-none animate-pulse rounded-xl" />}
               </div>
             ))}
           </div>
         )}
       </main>
-
-      <footer className="max-w-6xl mx-auto mt-20 pt-8 border-t border-gray-900 flex flex-col md:flex-row justify-between items-center gap-4 opacity-40">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-gray-500">© Z-ZONE TACTICAL LINK PROTOCOL 2.5</div>
-        <div className="font-mono text-[10px] uppercase tracking-widest flex items-center gap-2 text-gray-500">
-          <Zap size={10} /> ENCRYPTED COMMAND CHANNEL
-        </div>
-      </footer>
     </div>
   );
 };
