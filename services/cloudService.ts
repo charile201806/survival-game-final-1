@@ -1,7 +1,7 @@
 import { Player } from "../types";
 
-// 使用 npoint.io 官方建議的 bins 接口
-const API_BASE = "https://api.npoint.io/bins";
+// npoint.io API
+const API_BASE = "https://api.npoint.io";
 
 export const createRoom = async (players: Player[]): Promise<string | null> => {
   try {
@@ -17,24 +17,25 @@ export const createRoom = async (players: Player[]): Promise<string | null> => {
     });
     
     if (!response.ok) {
-      console.error(`API Error: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`npoint Create Error (${response.status}):`, errorText);
       return null;
     }
     
     const result = await response.json();
-    // npoint 返回的可能是 { "binId": "..." } 或 { "id": "..." }
     return result.binId || result.id || null;
   } catch (error) {
-    console.error("Cloud Error (Create):", error);
+    console.error("Cloud Connection Failed (Create):", error);
     return null;
   }
 };
 
 export const updateRoom = async (roomId: string, players: Player[]): Promise<boolean> => {
+  if (!roomId) return false;
   try {
-    // 更新資料
+    // npoint 支援直接 POST 到 ID 來更新內容
     const response = await fetch(`${API_BASE}/${roomId}`, {
-      method: "PUT", // 更新通常建議使用 PUT
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
@@ -44,10 +45,11 @@ export const updateRoom = async (roomId: string, players: Player[]): Promise<boo
       }),
     });
     
-    // 如果 PUT 不行，嘗試 POST (npoint 有時兩者都支援)
     if (!response.ok) {
-       const retry = await fetch(`${API_BASE}/${roomId}`, {
-        method: "POST",
+      console.warn(`Update failed with status ${response.status}, retrying with PUT...`);
+      // 某些情況下需要使用 PUT
+      const retry = await fetch(`${API_BASE}/${roomId}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: players, lastUpdate: Date.now() }),
       });
@@ -56,19 +58,22 @@ export const updateRoom = async (roomId: string, players: Player[]): Promise<boo
     
     return response.ok;
   } catch (error) {
-    console.error("Cloud Error (Update):", error);
+    console.error("Cloud Connection Failed (Update):", error);
     return false;
   }
 };
 
 export const getRoomData = async (roomId: string): Promise<Player[] | null> => {
+  if (!roomId) return null;
   try {
-    const response = await fetch(`${API_BASE}/${roomId}?t=${Date.now()}`);
+    const response = await fetch(`${API_BASE}/${roomId}?t=${Date.now()}`, {
+      cache: 'no-store'
+    });
     if (!response.ok) return null;
     const result = await response.json();
     return result.data || null;
   } catch (error) {
-    console.error("Cloud Error (Fetch):", error);
+    console.error("Cloud Connection Failed (Fetch):", error);
     return null;
   }
 };

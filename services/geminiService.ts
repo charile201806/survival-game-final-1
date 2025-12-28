@@ -1,17 +1,19 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Player, PlayerStatus } from "../types";
 
-// Vite 會將環境變數注入到 process.env (Vercel) 或 import.meta.env
-const apiKey = (process.env.API_KEY) || '';
+// 改為讀取 GEMINI_API_KEY
+const apiKey = (process.env.GEMINI_API_KEY) || '';
 const ai = new GoogleGenAI({ apiKey });
 
 export const generateBattleReport = async (players: Player[]): Promise<string> => {
-  if (!apiKey) {
-    return "API Key 尚未設定。請在 Vercel 環境變數中加入 API_KEY。";
+  if (!apiKey || apiKey === '') {
+    return "系統異常：[GEMINI_API_KEY] 未配置。請聯繫技術中心或檢查 Vercel 環境變數。";
   }
 
   const survivorCount = players.filter(p => p.status === PlayerStatus.SURVIVOR).length;
   const infectedCount = players.filter(p => p.status === PlayerStatus.INFECTED).length;
+  const eliminatedCount = players.filter(p => p.status === PlayerStatus.ELIMINATED).length;
   
   const playerListString = players.map(p => 
     `- ${p.name}: ${p.status === PlayerStatus.SURVIVOR ? '倖存' : (p.status === PlayerStatus.INFECTED ? '已感染/屍變' : '已淘汰')}`
@@ -22,6 +24,7 @@ export const generateBattleReport = async (players: Player[]): Promise<string> =
     目前的遊戲狀態如下：
     倖存者人數: ${survivorCount}
     感染者人數: ${infectedCount}
+    已淘汰人數: ${eliminatedCount}
     
     玩家名單與狀態:
     ${playerListString}
@@ -38,6 +41,6 @@ export const generateBattleReport = async (players: Player[]): Promise<string> =
     return response.text || "通訊干擾... 無法接收戰況報告。";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "通訊中斷，AI 伺服器拒絕連線。";
+    return "連線失敗：衛星通訊中斷，請確認 API Key 是否有效。";
   }
 };
