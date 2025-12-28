@@ -1,8 +1,7 @@
 import { Player } from "../types";
 
-// 使用 npoint.io 提供的標準 JSON API
-// 注意：npoint 的路徑通常為 / 建立，/[ID] 更新
-const API_BASE = "https://api.npoint.io";
+// 使用 npoint.io 官方建議的 bins 接口
+const API_BASE = "https://api.npoint.io/bins";
 
 export const createRoom = async (players: Player[]): Promise<string | null> => {
   try {
@@ -18,12 +17,13 @@ export const createRoom = async (players: Player[]): Promise<string | null> => {
     });
     
     if (!response.ok) {
-      console.error("API Error Response:", response.status);
+      console.error(`API Error: ${response.status} ${response.statusText}`);
       return null;
     }
     
     const result = await response.json();
-    return result.id || null;
+    // npoint 返回的可能是 { "binId": "..." } 或 { "id": "..." }
+    return result.binId || result.id || null;
   } catch (error) {
     console.error("Cloud Error (Create):", error);
     return null;
@@ -32,9 +32,9 @@ export const createRoom = async (players: Player[]): Promise<string | null> => {
 
 export const updateRoom = async (roomId: string, players: Player[]): Promise<boolean> => {
   try {
-    // npoint 更新資料使用 POST 到特定的 ID 路徑
+    // 更新資料
     const response = await fetch(`${API_BASE}/${roomId}`, {
-      method: "POST", 
+      method: "PUT", // 更新通常建議使用 PUT
       headers: {
         "Content-Type": "application/json",
       },
@@ -43,6 +43,16 @@ export const updateRoom = async (roomId: string, players: Player[]): Promise<boo
         lastUpdate: Date.now() 
       }),
     });
+    
+    // 如果 PUT 不行，嘗試 POST (npoint 有時兩者都支援)
+    if (!response.ok) {
+       const retry = await fetch(`${API_BASE}/${roomId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: players, lastUpdate: Date.now() }),
+      });
+      return retry.ok;
+    }
     
     return response.ok;
   } catch (error) {
@@ -53,7 +63,6 @@ export const updateRoom = async (roomId: string, players: Player[]): Promise<boo
 
 export const getRoomData = async (roomId: string): Promise<Player[] | null> => {
   try {
-    // 加上時間戳防止快取 (Cache)
     const response = await fetch(`${API_BASE}/${roomId}?t=${Date.now()}`);
     if (!response.ok) return null;
     const result = await response.json();
