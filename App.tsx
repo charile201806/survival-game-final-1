@@ -128,7 +128,13 @@ const App: React.FC = () => {
 
   const handleManualConnect = async () => {
      if (!manualId.trim()) return;
-     const id = manualId.trim();
+     // 自動提取 ID 邏輯：如果使用者貼上了整串網址，嘗試取出最後一部分
+     let id = manualId.trim();
+     if (id.includes('/')) {
+        const parts = id.split('/');
+        id = parts[parts.length - 1]; // 取最後一段
+     }
+
      setAiReport(`正在嘗試連線至指定節點 [${id}]...`);
      setIsSyncing(true);
      
@@ -151,7 +157,7 @@ const App: React.FC = () => {
             setEvents(data.events || []);
         }
      } else {
-        setAiReport(`連線失敗。無法存取節點 ${id} (404)。請確認 ID 是否正確或已在 npoint.io 建立。`);
+        setAiReport(`連線失敗。無法存取節點 ${id} (404)。請確認 ID 是否正確。`);
         setSyncError("INVALID_ID");
      }
      setIsSyncing(false);
@@ -260,8 +266,8 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Admin Access Button */}
-      <div className="fixed bottom-6 right-6 z-50">
+      {/* Admin Access Button - High Z-Index to avoid CRT scanline overlap */}
+      <div className="fixed bottom-6 right-6 z-[120]">
         <button 
           onClick={() => isAdmin ? (setIsAdmin(false), sessionStorage.removeItem('z-zone-admin')) : setShowLogin(true)} 
           className={`group relative flex items-center justify-center w-14 h-14 rounded-full shadow-2xl border-2 transition-all duration-300 ${isAdmin ? 'bg-yellow-500 border-yellow-400 text-black scale-110 shadow-yellow-500/20' : 'bg-gray-900 border-gray-700 text-gray-500 hover:border-neon-green hover:text-neon-green'}`}
@@ -283,6 +289,13 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex gap-2 items-center">
+           {/* Explicit Login Button for better visibility */}
+           {!isAdmin && (
+             <button onClick={() => setShowLogin(true)} className="flex items-center gap-2 px-4 py-3 bg-gray-800 border border-gray-700 text-gray-300 rounded font-mono text-xs hover:bg-gray-700 hover:text-white transition-all shadow-lg whitespace-nowrap">
+                <Lock size={14} /> COMMANDER LOGIN
+             </button>
+           )}
+
           {isAdmin && !roomId && (
             <>
               {!showManualInput ? (

@@ -1,13 +1,13 @@
+
 import { Player, GameEvent, RoomData } from "../types";
 
-// 使用 npoint 的標準 API，加上斜線嘗試解決部分伺服器的 404 問題
-const API_BASE = "https://api.npoint.io/bins";
+// 修正：直接指向根目錄，移除 /bins
+const API_BASE = "https://api.npoint.io";
 
 export const createRoom = async (players: Player[], events: GameEvent[]): Promise<{ key: string | null; error?: string }> => {
   try {
     const payload: RoomData = { players, events, lastUpdate: Date.now() };
     
-    // 某些環境下，npoint 的 POST 需要非常乾淨的請求
     const response = await fetch(API_BASE, {
       method: "POST",
       headers: { 
@@ -36,8 +36,9 @@ export const updateRoom = async (roomId: string, players: Player[], events: Game
   
   try {
     const payload: RoomData = { players, events, lastUpdate: Date.now() };
+    // 修正：npoint 更新資料通常使用 POST
     const response = await fetch(`${API_BASE}/${roomId}`, {
-      method: "PUT",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
