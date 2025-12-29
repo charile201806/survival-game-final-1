@@ -3,36 +3,31 @@ import { GoogleGenAI } from "@google/genai";
 import { Player, PlayerStatus } from "../types";
 
 export const generateBattleReport = async (players: Player[]): Promise<string> => {
-  // 必須使用 process.env.API_KEY
+  // 強制每次調用都從環境變量讀取最新的 API_KEY
   const apiKey = process.env.API_KEY;
   
   if (!apiKey) {
-    return "錯誤：[API_KEY] 尚未配置。請檢查環境設定。";
+    return "系統衝突：[API_KEY] 丟失。請檢查主機通訊模組。";
   }
 
   const ai = new GoogleGenAI({ apiKey });
 
-  const survivorCount = players.filter(p => p.status === PlayerStatus.SURVIVOR).length;
-  const infectedCount = players.filter(p => p.status === PlayerStatus.INFECTED).length;
-  const eliminatedCount = players.filter(p => p.status === PlayerStatus.ELIMINATED).length;
+  const survivors = players.filter(p => p.status === PlayerStatus.SURVIVOR);
+  const infected = players.filter(p => p.status === PlayerStatus.INFECTED);
+  const eliminated = players.filter(p => p.status === PlayerStatus.ELIMINATED);
   
-  const playerListString = players.map(p => 
-    `- ${p.name}: [${p.status === PlayerStatus.SURVIVOR ? '活耀' : (p.status === PlayerStatus.INFECTED ? '生物標記異常/已感染' : '信號消失/已淘汰')}]`
-  ).join('\n');
-
   const prompt = `
-    你是一位負責監控「Z-ZONE」大逃殺戰區的軍事人工智慧指揮官。
-    當前戰區概況：
-    - 倖存作戰單位：${survivorCount}
-    - 感染生物特徵：${infectedCount}
-    - 確認終止單位：${eliminatedCount}
+    你現在是 Z-ZONE 戰術人工智慧『奧丁』。
+    戰區報告摘要：
+    - 存活單位：${survivors.length} 名 (${survivors.map(p => p.name).join(', ')})
+    - 感染標記：${infected.length} 名 (${infected.map(p => p.name).join(', ')})
+    - 離線單位：${eliminated.length} 名
     
-    詳細名單：
-    ${playerListString}
-    
-    指令：
-    請生成一段 60 字內、冷酷且具有軍事質感的繁體中文戰訊。
-    請使用「警告」、「注意」、「通告」等詞彙。禁止使用可愛或輕鬆的語氣。
+    任務：
+    請根據以上數據，生成一段約 50 字的戰術評估。
+    語氣要求：極度冷靜、專業、軍事化。
+    範例：『警告。存活率跌至 40%。建議剩餘單位向 B 點集結，清除感染標記。』
+    請勿使用廢話，直接輸出報告。
   `;
 
   try {
@@ -40,9 +35,13 @@ export const generateBattleReport = async (players: Player[]): Promise<string> =
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    return response.text || "衛星通訊鏈路中斷，無法取得具體情報。";
+    
+    return response.text?.trim() || "通訊干擾中，無法取得明文內容。";
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    return `通訊攔截失敗：${error?.message || "未知伺服器異常"}。`;
+    console.error("Gemini Critical Failure:", error);
+    if (error?.message?.includes('API key not valid')) {
+      return "認證錯誤：無效的衛星存取金鑰。";
+    }
+    return `通訊攔截異常：${error?.message?.slice(0, 30)}... [代碼: ERR_COMMS_FAIL]`;
   }
 };
