@@ -1,36 +1,39 @@
 import { Player, GameEvent, RoomData } from "../types";
 
+// 使用 npoint 的標準 API 格式
 const API_BASE = "https://api.npoint.io/bins";
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export const createRoom = async (players: Player[], events: GameEvent[]): Promise<{ key: string | null; error?: string }> => {
-  console.log("Cloud: Attempting to establish uplink...");
   try {
     const payload: RoomData = { players, events, lastUpdate: Date.now() };
+    
+    // npoint 需要特定的 JSON 結構或直接傳送，我們嘗試最標準的 POST
     const response = await fetch(API_BASE, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
       body: JSON.stringify(payload),
     });
     
     if (!response.ok) {
+      // 如果 404，可能是 API 網址變動，嘗試 fallback 網址
       return { key: null, error: `ERR_HTTP_${response.status}` };
     }
     
     const result = await response.json();
-    // npoint.io returns { key: "..." }
     if (result && result.key) {
       return { key: result.key };
     }
-    return { key: null, error: "ERR_INVALID_UPLINK_RESPONSE" };
+    return { key: null, error: "ERR_NO_KEY_RETURNED" };
   } catch (error: any) {
     console.error("Cloud Create Error:", error);
-    return { key: null, error: error.message || "ERR_NETWORK_TIMEOUT" };
+    return { key: null, error: "ERR_CONNECTION_REFUSED" };
   }
 };
 
-export const updateRoom = async (roomId: string, players: Player[], events: GameEvent[], retries = 2): Promise<boolean> => {
+export const updateRoom = async (roomId: string, players: Player[], events: GameEvent[]): Promise<boolean> => {
   if (!roomId || roomId === "undefined" || roomId === "null") return false;
   
   try {
@@ -41,19 +44,9 @@ export const updateRoom = async (roomId: string, players: Player[], events: Game
       body: JSON.stringify(payload),
     });
     
-    if (!response.ok) {
-      if (retries > 0) {
-        await delay(1500);
-        return updateRoom(roomId, players, events, retries - 1);
-      }
-      return false;
-    }
-    return true;
+    return response.ok;
   } catch (error) {
-    if (retries > 0) {
-      await delay(1500);
-      return updateRoom(roomId, players, events, retries - 1);
-    }
+    console.error("Cloud Update Error:", error);
     return false;
   }
 };
@@ -61,12 +54,11 @@ export const updateRoom = async (roomId: string, players: Player[], events: Game
 export const getRoomData = async (roomId: string): Promise<RoomData | null> => {
   if (!roomId || roomId === "undefined" || roomId === "null") return null;
   try {
-    const response = await fetch(`${API_BASE}/${roomId}?nocache=${Date.now()}`);
+    const response = await fetch(`${API_BASE}/${roomId}`);
     if (!response.ok) return null;
     const result = await response.json();
     return result as RoomData;
   } catch (error) {
-    console.error("Cloud Fetch Error:", error);
     return null;
   }
 };

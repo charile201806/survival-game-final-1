@@ -1,10 +1,17 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Player, PlayerStatus } from "../types";
 
+/**
+ * Generates a tactical battle report using the Gemini API.
+ * Uses gemini-3-flash-preview for basic summarization and evaluation.
+ */
 export const generateBattleReport = async (players: Player[]): Promise<string> => {
+  // Always use process.env.API_KEY.
   const apiKey = process.env.API_KEY;
   if (!apiKey) return "系統衝突：[API_KEY] 丟失。請檢查主機通訊模組。";
 
+  // Use new GoogleGenAI({apiKey: process.env.API_KEY}) as per guidelines.
   const ai = new GoogleGenAI({ apiKey });
 
   const survivors = players.filter(p => p.status === PlayerStatus.SURVIVOR);
@@ -28,12 +35,15 @@ export const generateBattleReport = async (players: Player[]): Promise<string> =
   `;
 
   try {
+    // Correct method: use ai.models.generateContent with both model and contents.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
     
-    return response.text?.trim() || "通訊干擾中，無法取得明文內容。";
+    // Correct property: use .text property on the response object.
+    const text = response.text;
+    return text?.trim() || "通訊干擾中，無法取得明文內容。";
   } catch (error: any) {
     console.error("AI Failure:", error);
     return "通訊攔截異常：無法執行戰術演算。建議重啟加密終端。";
