@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Plus, LogOut, Lock, Share2, Cloud, Signal, AlertCircle, Cpu, Clock, Terminal, Activity } from 'lucide-react';
+import { Plus, LogOut, Lock, Share2, Cloud, Signal, AlertCircle, Cpu, Clock, Terminal, Activity, Wifi, WifiOff } from 'lucide-react';
 import { Player, PlayerStatus, GameStats, GameEvent, RoomData } from './types';
 import { StatsBoard } from './components/StatsBoard';
 import { PlayerCard } from './components/PlayerCard';
@@ -30,7 +30,33 @@ const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
   const [showShare, setShowShare] = useState(false);
 
-  // 打字機效果
+  // 音效反饋
+  const playSound = (type: 'click' | 'success' | 'alert') => {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    if (type === 'click') {
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+    } else if (type === 'alert') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, ctx.currentTime);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    }
+  };
+
   useEffect(() => {
     let i = 0;
     setDisplayText('');
@@ -59,10 +85,11 @@ const App: React.FC = () => {
       detail
     };
     setEvents(prev => [newEvent, ...prev].slice(0, 50));
+    playSound('click');
   }, []);
 
   const fetchData = useCallback(async (id: string) => {
-    if (!id || id === "undefined") return;
+    if (!id || id === "undefined" || id === "null") return;
     setIsSyncing(true);
     try {
       const cloudData = await getRoomData(id);
@@ -72,7 +99,7 @@ const App: React.FC = () => {
         setEvents(cloudData.events || []);
         setSyncError(null);
       } else {
-        setSyncError("INVALID_ROOM");
+        setSyncError("NODE_NOT_FOUND");
       }
     } catch (e) {
       setIsSyncing(false);
@@ -80,7 +107,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 初始載入
   useEffect(() => {
     if (roomId) {
       fetchData(roomId);
@@ -92,17 +118,16 @@ const App: React.FC = () => {
     }
   }, [roomId, fetchData]);
 
-  // 管理員自動同步 (防抖處理)
   useEffect(() => {
     if (isAdmin && roomId) {
       const sync = async () => {
         setIsSyncing(true);
         const success = await updateRoom(roomId, players, events);
         setIsSyncing(false);
-        if (!success) setSyncError("SYNC_FAILED");
+        if (!success) setSyncError("SYNC_FAIL");
         else setSyncError(null);
       };
-      const tid = setTimeout(sync, 3000);
+      const tid = setTimeout(sync, 4000);
       return () => clearTimeout(tid);
     }
     if (isAdmin && !roomId) {
@@ -111,10 +136,9 @@ const App: React.FC = () => {
     }
   }, [players, events, isAdmin, roomId]);
 
-  // 觀戰者自動刷新 (每 10 秒，增加連線失敗重試)
   useEffect(() => {
     if (!isAdmin && roomId) {
-      const interval = setInterval(() => fetchData(roomId), 10000);
+      const interval = setInterval(() => fetchData(roomId), 12000);
       return () => clearInterval(interval);
     }
   }, [isAdmin, roomId, fetchData]);
@@ -129,36 +153,32 @@ const App: React.FC = () => {
   const handleEnableSync = async () => {
     if (!isAdmin) return;
     setIsSyncing(true);
-    setAiReport("正在向中央伺服器申請戰術頻寬...");
-    try {
-      const newId = await createRoom(players, events);
-      if (newId) {
-        setRoomId(newId);
-        localStorage.setItem('z-zone-active-room', newId);
-        const url = new URL(window.location.href);
-        url.searchParams.set('room', newId);
-        window.history.replaceState({}, '', url.toString());
-        setAiReport(`加密頻道已鎖定。戰區 ID: ${newId}。通訊鏈路正常。`);
-      } else {
-        setAiReport("連線請求被拒絕。請檢查網路防火牆。");
-      }
-    } catch (e) {
-      setAiReport("連線失敗：衛星信號丟失。");
-    } finally {
+    setSyncError(null);
+    setAiReport("正在嘗試與中央通訊節點進行握手協定 [HANDSHAKE]...");
+    
+    const result = await createRoom(players, events);
+    
+    if (result.key) {
+      setRoomId(result.key);
+      localStorage.setItem('z-zone-active-room', result.key);
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', result.key);
+      window.history.replaceState({}, '', url.toString());
+      setAiReport(`連線建立成功。戰術頻道 ID: ${result.key}。開始廣播實時數據...`);
       setIsSyncing(false);
+    } else {
+      setIsSyncing(false);
+      const errCode = result.error || "UNKNOWN_FAILURE";
+      setSyncError(errCode);
+      setAiReport(`連線請求被拒絕。錯誤代碼: ${errCode}。系統已切換至 [本地指揮模式]。`);
+      playSound('alert');
     }
   };
 
   const handleStatusChange = (id: string, status: PlayerStatus) => {
     const player = players.find(p => p.id === id);
     if (!player) return;
-    
-    const statusLabels = {
-      [PlayerStatus.SURVIVOR]: '倖存',
-      [PlayerStatus.INFECTED]: '已感染',
-      [PlayerStatus.ELIMINATED]: '已淘汰'
-    };
-
+    const statusLabels = { [PlayerStatus.SURVIVOR]: '倖存', [PlayerStatus.INFECTED]: '已感染', [PlayerStatus.ELIMINATED]: '已淘汰' };
     setPlayers(prev => prev.map(p => p.id === id ? {...p, status, statusChangedAt: Date.now()} : p));
     addEvent(player.name, `狀態變更為 [${statusLabels[status]}]`);
   };
@@ -173,13 +193,7 @@ const App: React.FC = () => {
   const handleAddPlayer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
-    const player: Player = {
-      id: crypto.randomUUID(),
-      name: newName.trim(),
-      status: PlayerStatus.SURVIVOR,
-      joinedAt: Date.now(),
-      statusChangedAt: Date.now()
-    };
+    const player: Player = { id: crypto.randomUUID(), name: newName.trim(), status: PlayerStatus.SURVIVOR, joinedAt: Date.now(), statusChangedAt: Date.now() };
     setPlayers(prev => [player, ...prev]);
     addEvent(player.name, "已加入戰區", "JOIN");
     setNewName('');
@@ -188,7 +202,7 @@ const App: React.FC = () => {
   const handleGenerateReport = async () => {
     if (players.length === 0) return;
     setIsGeneratingReport(true);
-    setAiReport("正在讀取衛星地圖與單位生命徵象...");
+    setAiReport("正在分析戰區熱力圖與生命指標...");
     const report = await generateBattleReport(players);
     setAiReport(report);
     setIsGeneratingReport(false);
@@ -201,7 +215,7 @@ const App: React.FC = () => {
 
       {/* Top HUD */}
       <div className="fixed top-0 left-0 w-full z-50 flex justify-center p-2 pointer-events-none">
-        <div className={`flex items-center gap-6 bg-black/80 backdrop-blur-md border px-5 py-2 rounded-full shadow-lg pointer-events-auto transition-all ${syncError ? 'border-red-500 shadow-red-500/20 text-red-500' : 'border-gray-800 shadow-neon-green/5'}`}>
+        <div className={`flex items-center gap-6 bg-black/90 backdrop-blur-md border px-5 py-2 rounded-full shadow-2xl pointer-events-auto transition-all ${syncError ? 'border-red-500 text-red-500' : 'border-gray-800'}`}>
           <div className="flex items-center gap-2 pr-4 border-r border-gray-800">
             <Clock size={12} className="text-gray-500" />
             <span className="text-[10px] font-mono tracking-widest">{currentTime.toLocaleTimeString([], { hour12: false })}</span>
@@ -209,18 +223,17 @@ const App: React.FC = () => {
           
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <Signal size={12} className={`${isSyncing || !syncError ? "text-neon-green" : "text-gray-600"} ${isSyncing ? "animate-pulse" : ""}`} />
-              <span className="text-[10px] font-mono uppercase tracking-tighter">
-                {roomId ? `Link: ${roomId}` : 'Local-Terminal'}
+              {roomId ? (syncError ? <WifiOff size={14} /> : <Wifi size={14} className="text-neon-green" />) : <Signal size={14} className="text-gray-500" />}
+              <span className={`text-[10px] font-mono uppercase tracking-tighter ${syncError ? 'text-red-500' : (roomId ? 'text-neon-green' : 'text-gray-500')}`}>
+                {roomId ? `CHANNEL: ${roomId}` : 'LOCAL_UPLINK'}
               </span>
             </div>
-            {isSyncing && <span className="text-[8px] bg-neon-green/10 text-neon-green px-1.5 py-0.5 rounded animate-pulse font-mono font-bold tracking-widest">SYNCING...</span>}
-            {syncError && <button onClick={() => roomId && fetchData(roomId)} className="text-[8px] bg-red-900 hover:bg-red-800 text-white px-2 py-0.5 rounded flex items-center gap-1 transition-colors"><AlertCircle size={8} /> ERROR: {syncError}</button>}
+            {isSyncing && <span className="text-[8px] bg-neon-green/10 text-neon-green px-1.5 py-0.5 rounded animate-pulse font-mono font-bold">SYNC...</span>}
+            {syncError && <button onClick={() => roomId ? fetchData(roomId) : handleEnableSync()} className="text-[8px] bg-red-900 hover:bg-red-800 text-white px-2 py-0.5 rounded flex items-center gap-1 transition-colors"><AlertCircle size={8} /> RETRY ({syncError})</button>}
           </div>
         </div>
       </div>
 
-      {/* Auth Button */}
       <div className="fixed top-4 right-4 z-50">
         <button 
           onClick={() => isAdmin ? (window.confirm('確定終止指揮權限？') && (setIsAdmin(false), sessionStorage.removeItem('z-zone-admin'))) : setShowLogin(true)} 
@@ -232,17 +245,17 @@ const App: React.FC = () => {
       </div>
 
       <header className="max-w-6xl mx-auto mb-10 flex flex-col md:flex-row justify-between items-center gap-6 mt-12">
-        <div className="relative">
-          <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-800 italic tracking-tighter leading-none select-none">Z-ZONE</h1>
+        <div className="relative group">
+          <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-800 italic tracking-tighter leading-none select-none group-hover:scale-105 transition-transform duration-500">Z-ZONE</h1>
           <div className="absolute -bottom-2 left-0 flex items-center gap-2">
             <div className="h-1 w-12 bg-neon-green shadow-[0_0_10px_#00f0ff]"></div>
-            <span className="text-[9px] font-mono text-neon-green tracking-[0.5em] uppercase font-bold">Tactical Command v3.0</span>
+            <span className="text-[9px] font-mono text-neon-green tracking-[0.5em] uppercase font-bold">Tactical Command v3.1</span>
           </div>
         </div>
         
         <div className="flex gap-2">
           {isAdmin && !roomId && (
-            <button onClick={handleEnableSync} disabled={isSyncing} className="flex items-center gap-2 px-4 py-3 bg-yellow-900/20 border border-yellow-500/50 text-yellow-500 rounded font-mono text-xs hover:bg-yellow-900/40 transition-all">
+            <button onClick={handleEnableSync} disabled={isSyncing} className="flex items-center gap-2 px-4 py-3 bg-yellow-900/20 border border-yellow-500/50 text-yellow-500 rounded font-mono text-xs hover:bg-yellow-900/40 transition-all shadow-lg shadow-yellow-500/5">
               <Cloud size={14} /> INITIALIZE CLOUD
             </button>
           )}
@@ -258,7 +271,6 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-6xl mx-auto">
-        {/* Terminal Window */}
         <div className="mb-12 bg-black border border-gray-800 rounded-lg shadow-2xl overflow-hidden group">
           <div className="bg-gray-900/50 px-4 py-2 border-b border-gray-800 flex justify-between items-center">
             <div className="flex gap-1.5">
@@ -272,7 +284,7 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="p-6 md:p-8 min-h-[120px] bg-gradient-to-br from-black to-gray-900/30">
-            <p className="font-mono text-lg md:text-2xl leading-relaxed text-gray-200">
+            <p className="font-mono text-lg md:text-xl leading-relaxed text-gray-200">
               <span className="text-neon-green mr-3 animate-pulse font-bold">$</span>
               {displayText}
               <span className="inline-block w-2.5 h-5 bg-neon-green ml-1 animate-pulse"></span>
@@ -283,14 +295,13 @@ const App: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
              <StatsBoard stats={stats} />
-             
              {isAdmin && (
               <form onSubmit={handleAddPlayer} className="mb-8 flex gap-2">
                 <div className="relative flex-1">
                   <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
                   <input 
                     type="text" value={newName} onChange={e => setNewName(e.target.value)}
-                    placeholder="輸入單位呼號 (e.g. ALPHA-1)..."
+                    placeholder="輸入呼號 (如: ALPHA-01)..."
                     className="w-full bg-gray-900/50 border border-gray-800 rounded pl-12 pr-4 py-4 text-xl focus:border-neon-green outline-none font-mono transition-all"
                   />
                 </div>
@@ -299,42 +310,54 @@ const App: React.FC = () => {
                 </button>
               </form>
             )}
-
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
               {players.length === 0 ? (
-                <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-800 rounded-xl">
-                  <p className="text-gray-600 font-mono uppercase tracking-widest">等待指揮官部署單位...</p>
+                <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-800 rounded-xl opacity-50">
+                  <p className="text-gray-600 font-mono uppercase tracking-[0.3em]">等待指揮官接入單位...</p>
                 </div>
               ) : (
                 players.map(player => (
-                  <PlayerCard 
-                    key={player.id} 
-                    player={player} 
-                    onStatusChange={handleStatusChange}
-                    onDelete={handleDeletePlayer}
-                    readOnly={!isAdmin} 
-                  />
+                  <PlayerCard key={player.id} player={player} onStatusChange={handleStatusChange} onDelete={handleDeletePlayer} readOnly={!isAdmin} />
                 ))
               )}
             </div>
           </div>
-          
           <div className="lg:col-span-1">
             <ActivityLog events={events} />
-            <div className="bg-panel-bg border border-gray-800 p-6 rounded-lg">
-              <h4 className="text-gray-400 text-xs font-mono uppercase tracking-widest mb-4">系統診斷</h4>
-              <div className="space-y-4">
+            <div className="bg-panel-bg border border-gray-800 p-6 rounded-lg shadow-xl">
+              <h4 className="text-gray-400 text-[10px] font-mono uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-neon-green"></div>
+                系統診斷 / SYS_DIAG
+              </h4>
+              <div className="space-y-5">
                 <div className="flex justify-between items-center text-xs font-mono">
                   <span className="text-gray-500">同步狀態</span>
-                  <span className={syncError ? "text-neon-red" : "text-neon-green"}>{syncError ? "鏈路中斷" : "加密連線中"}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs font-mono">
-                  <span className="text-gray-500">本地時間</span>
-                  <span className="text-gray-300">{currentTime.toLocaleTimeString()}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={syncError ? "text-red-500" : "text-neon-green"}>
+                      {syncError ? "LINK_INTERRUPTED" : (roomId ? "ENCRYPTED_LINK" : "LOCAL_ONLY")}
+                    </span>
+                    <div className={`w-1.5 h-1.5 rounded-full ${syncError ? 'bg-red-500 animate-pulse' : (roomId ? 'bg-neon-green' : 'bg-gray-600')}`}></div>
+                  </div>
                 </div>
                 <div className="flex justify-between items-center text-xs font-mono">
                   <span className="text-gray-500">權限層級</span>
-                  <span className={isAdmin ? "text-yellow-500" : "text-gray-500"}>{isAdmin ? "ROOT / COMMANDER" : "READ_ONLY / OBSERVER"}</span>
+                  <span className={isAdmin ? "text-yellow-500" : "text-gray-500"}>{isAdmin ? "ROOT_ACCESS" : "GUEST_READ"}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs font-mono">
+                  <span className="text-gray-500">戰場時戳</span>
+                  <span className="text-gray-300">{currentTime.toLocaleTimeString()}</span>
+                </div>
+                <div className="pt-4 border-t border-gray-800/50">
+                   <div className="h-1.5 w-full bg-gray-900 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-neon-green transition-all duration-1000" 
+                        style={{ width: `${stats.total > 0 ? (stats.survivors / stats.total) * 100 : 0}%` }}
+                      ></div>
+                   </div>
+                   <div className="flex justify-between mt-2">
+                      <span className="text-[9px] text-gray-600 font-mono">生存率評估</span>
+                      <span className="text-[9px] text-neon-green font-mono">{stats.total > 0 ? Math.round((stats.survivors / stats.total) * 100) : 0}%</span>
+                   </div>
                 </div>
               </div>
             </div>
@@ -345,11 +368,9 @@ const App: React.FC = () => {
       <style>{`
         @keyframes danger-pulse {
           0%, 100% { box-shadow: inset 0 0 0px rgba(255, 0, 0, 0); }
-          50% { box-shadow: inset 0 0 100px rgba(255, 0, 0, 0.15); }
+          50% { box-shadow: inset 0 0 150px rgba(255, 0, 0, 0.2); }
         }
-        .animate-danger-pulse {
-          animation: danger-pulse 2s infinite ease-in-out;
-        }
+        .animate-danger-pulse { animation: danger-pulse 1.5s infinite ease-in-out; }
       `}</style>
     </div>
   );
