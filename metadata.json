@@ -1,5 +1,5 @@
 {
-  "name": "Copy of 倖存感染狀態顯示",
-  "description": "A tactical real-time status tracker for real-world Battle Royale or Zombie Infection games. Features survivor tracking, infection status updates, and AI-powered battlefield commentary.",
+  "name": "Z-ZONE 戰術指揮系統",
+  "description": "即時現實生存遊戲監控終端。具備雲端同步、單位狀態追蹤與軍事級 AI 戰情報告功能。",
   "requestFramePermissions": []
 }
