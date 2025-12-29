@@ -13,9 +13,23 @@ export interface Player {
   note?: string;
 }
 
+export interface GameEvent {
+  id: string;
+  timestamp: number;
+  playerName: string;
+  type: 'JOIN' | 'STATUS_CHANGE' | 'DELETE';
+  detail: string;
+}
+
 export interface GameStats {
   total: number;
   survivors: number;
   infected: number;
   eliminated: number;
+}
+
+export interface RoomData {
+  players: Player[];
+  events: GameEvent[];
+  lastUpdate: number;
 }

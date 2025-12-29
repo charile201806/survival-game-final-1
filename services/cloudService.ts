@@ -1,77 +1,66 @@
+import { Player, GameEvent, RoomData } from "../types";
 
-import { Player } from "../types";
-
-// npoint.io API
 const API_BASE = "https://api.npoint.io/bins";
 
-export const createRoom = async (players: Player[]): Promise<string | null> => {
-  console.log("Cloud: Attempting to create channel...");
+// 簡單的延遲函數
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+export const createRoom = async (players: Player[], events: GameEvent[]): Promise<string | null> => {
+  console.log("Cloud: Initializing channel...");
   try {
+    const payload: RoomData = { players, events, lastUpdate: Date.now() };
     const response = await fetch(API_BASE, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ 
-        players: players, 
-        lastUpdate: Date.now()
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
     
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`Cloud Create Failed: ${response.status}`, err);
-      return null;
-    }
-    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
-    // npoint.io 成功後會回傳 {"key":"xxxxx"}
-    console.log("Cloud: Channel created with key:", result.key);
     return result.key || null;
   } catch (error) {
-    console.error("Cloud Connection Error (Create):", error);
+    console.error("Cloud Create Error:", error);
     return null;
   }
 };
 
-export const updateRoom = async (roomId: string, players: Player[]): Promise<boolean> => {
+export const updateRoom = async (roomId: string, players: Player[], events: GameEvent[], retries = 2): Promise<boolean> => {
   if (!roomId || roomId === "undefined") return false;
+  
   try {
+    const payload: RoomData = { players, events, lastUpdate: Date.now() };
     const response = await fetch(`${API_BASE}/${roomId}`, {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ 
-        players: players, 
-        lastUpdate: Date.now() 
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
     
     if (!response.ok) {
-      console.error(`Cloud Update Failed: ${response.status}`);
+      if (retries > 0) {
+        await delay(1000);
+        return updateRoom(roomId, players, events, retries - 1);
+      }
       return false;
     }
     return true;
   } catch (error) {
-    console.error("Cloud Connection Error (Update):", error);
+    if (retries > 0) {
+      await delay(1000);
+      return updateRoom(roomId, players, events, retries - 1);
+    }
     return false;
   }
 };
 
-export const getRoomData = async (roomId: string): Promise<Player[] | null> => {
+export const getRoomData = async (roomId: string): Promise<RoomData | null> => {
   if (!roomId || roomId === "undefined") return null;
   try {
     const response = await fetch(`${API_BASE}/${roomId}?nocache=${Date.now()}`);
-    if (!response.ok) {
-      console.error(`Cloud Fetch Failed: ${response.status}`);
-      return null;
-    }
+    if (!response.ok) return null;
     const result = await response.json();
-    // 取得資料結構中的 players 陣列
-    return result.players || null;
+    return result as RoomData;
   } catch (error) {
-    console.error("Cloud Connection Error (Fetch):", error);
+    console.error("Cloud Fetch Error:", error);
     return null;
   }
 };

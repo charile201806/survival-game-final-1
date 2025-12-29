@@ -1,5 +1,5 @@
 {
-  "name": "Z-ZONE 戰術指揮系統",
-  "description": "即時現實生存遊戲監控終端。具備雲端同步、單位狀態追蹤與軍事級 AI 戰情報告功能。",
+  "name": "Z-ZONE 戰術指揮系統 v3.0",
+  "description": "即時現實生存遊戲監控終端。具備強化型雲端同步、行動日誌追蹤與 ODIN AI 戰術評估功能。",
   "requestFramePermissions": []
 }
